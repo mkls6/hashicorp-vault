@@ -68,5 +68,7 @@ func (y *YDBBackend) Transaction(ctx context.Context, txns []*physical.TxnEntry)
 }
 
 func (y *YDBBackend) TransactionLimits() (int, int) {
-	return 63, 128 * 1024
+	// These defaults are intentionally conservative.
+	// Actual YDB limits are yet to be validated.
+	return y.transactionMaxEntries, y.transactionMaxSize
 }

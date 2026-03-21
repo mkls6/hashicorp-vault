@@ -1,12 +1,19 @@
 package ydb
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	env "github.com/ydb-platform/ydb-go-sdk-auth-environ"
 	ydb "github.com/ydb-platform/ydb-go-sdk/v3"
 	yc "github.com/ydb-platform/ydb-go-yc"
+)
+
+const (
+	defaultYDBTransactionMaxEntries = 63
+	defaultYDBTransactionMaxSize    = 128 * 1024
 )
 
 func getYDBOptionsFromConfMap(conf map[string]string) []ydb.Option {
@@ -168,4 +175,42 @@ func getYDBHACoordinationNodePath(conf map[string]string, dbName, table string) 
 
 func getYDBHAEnabled(conf map[string]string) bool {
 	return lookupFirstBool("VAULT_YDB_HA_ENABLED", conf["ha_enabled"])
+}
+
+func getYDBTransactionLimits(conf map[string]string) (int, int, error) {
+	maxEntries, err := lookupPositiveInt(
+		"VAULT_YDB_TRANSACTION_MAX_ENTRIES",
+		conf["transaction_max_entries"],
+		defaultYDBTransactionMaxEntries,
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("transaction_max_entries: %w", err)
+	}
+
+	maxSize, err := lookupPositiveInt(
+		"VAULT_YDB_TRANSACTION_MAX_SIZE",
+		conf["transaction_max_size"],
+		defaultYDBTransactionMaxSize,
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("transaction_max_size: %w", err)
+	}
+
+	return maxEntries, maxSize, nil
+}
+
+func lookupPositiveInt(envKey, confValue string, defaultValue int) (int, error) {
+	value := lookupFirstNonEmpty(envKey, confValue)
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("must be an integer")
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("must be greater than zero")
+	}
+	return parsed, nil
 }

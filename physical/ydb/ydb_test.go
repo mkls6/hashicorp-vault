@@ -218,3 +218,80 @@ func TestResolveYDBAuth(t *testing.T) {
 		})
 	}
 }
+
+func TestGetYDBTransactionLimits(t *testing.T) {
+	tests := []struct {
+		name        string
+		conf        map[string]string
+		env         map[string]string
+		wantEntries int
+		wantSize    int
+		expectErr   bool
+	}{
+		{
+			name:        "defaults",
+			wantEntries: defaultYDBTransactionMaxEntries,
+			wantSize:    defaultYDBTransactionMaxSize,
+		},
+		{
+			name: "config overrides",
+			conf: map[string]string{
+				"transaction_max_entries": "100",
+				"transaction_max_size":    "262144",
+			},
+			wantEntries: 100,
+			wantSize:    262144,
+		},
+		{
+			name: "env overrides config",
+			conf: map[string]string{
+				"transaction_max_entries": "100",
+				"transaction_max_size":    "262144",
+			},
+			env: map[string]string{
+				"VAULT_YDB_TRANSACTION_MAX_ENTRIES": "50",
+				"VAULT_YDB_TRANSACTION_MAX_SIZE":    "131072",
+			},
+			wantEntries: 50,
+			wantSize:    131072,
+		},
+		{
+			name: "invalid entries",
+			conf: map[string]string{
+				"transaction_max_entries": "0",
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid size",
+			env: map[string]string{
+				"VAULT_YDB_TRANSACTION_MAX_SIZE": "abc",
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("VAULT_YDB_TRANSACTION_MAX_ENTRIES", "")
+			t.Setenv("VAULT_YDB_TRANSACTION_MAX_SIZE", "")
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+
+			gotEntries, gotSize, err := getYDBTransactionLimits(tc.conf)
+			if tc.expectErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotEntries != tc.wantEntries || gotSize != tc.wantSize {
+				t.Fatalf("getYDBTransactionLimits() = (%d, %d), want (%d, %d)", gotEntries, gotSize, tc.wantEntries, tc.wantSize)
+			}
+		})
+	}
+}

@@ -18,11 +18,13 @@ import (
 const VAULT_TABLE = "vault_kv"
 
 type YDBBackend struct {
-	db               *ydb.Driver
-	table            string
-	coordinationNode string
-	haEnabled        bool
-	logger           log.Logger
+	db                    *ydb.Driver
+	table                 string
+	coordinationNode      string
+	haEnabled             bool
+	transactionMaxEntries int
+	transactionMaxSize    int
+	logger                log.Logger
 }
 
 var (
@@ -57,6 +59,10 @@ func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend,
 	if err != nil {
 		return &YDBBackend{}, fmt.Errorf("YDB: invalid table name: %w", err)
 	}
+	transactionMaxEntries, transactionMaxSize, err := getYDBTransactionLimits(conf)
+	if err != nil {
+		return &YDBBackend{}, fmt.Errorf("YDB: invalid transaction limits: %w", err)
+	}
 
 	ctx := context.TODO()
 	db, err := ydb.Open(ctx, dsn, getYDBOptionsFromConfMap(conf)...)
@@ -73,11 +79,13 @@ func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend,
 	}
 
 	return &YDBBackend{
-		db:               db,
-		table:            quotedTable,
-		coordinationNode: getYDBHACoordinationNodePath(conf, db.Name(), table),
-		haEnabled:        getYDBHAEnabled(conf),
-		logger:           logger,
+		db:                    db,
+		table:                 quotedTable,
+		coordinationNode:      getYDBHACoordinationNodePath(conf, db.Name(), table),
+		haEnabled:             getYDBHAEnabled(conf),
+		transactionMaxEntries: transactionMaxEntries,
+		transactionMaxSize:    transactionMaxSize,
+		logger:                logger,
 	}, nil
 }
 
