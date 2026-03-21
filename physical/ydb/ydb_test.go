@@ -41,7 +41,11 @@ func TestYDBBackend(t *testing.T) {
 
 	logger.Info("Running list prefix backend tests")
 	physical.ExerciseBackend_ListPrefix(t, backend)
+
+	logger.Info("Running transactional backend tests")
 	physical.ExerciseTransactionalBackend(t, backend)
+
+	logger.Info("Running ha backend tests")
 	physical.ExerciseHABackend(t, backend.(physical.HABackend), backend2.(physical.HABackend))
 }
 
