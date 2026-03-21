@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode"
 
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/sdk/physical"
@@ -54,6 +55,11 @@ func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend,
 		}
 	}
 
+	quotedTable, err := quoteYDBIdentifier(table)
+	if err != nil {
+		return &YDBBackend{}, fmt.Errorf("YDB: invalid table name: %w", err)
+	}
+
 	opts := getYDBOptionsFromConfMap(conf)
 
 	// Override from ENV
@@ -76,7 +82,7 @@ func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend,
 
 	return &YDBBackend{
 		db:     db,
-		table:  table,
+		table:  quotedTable,
 		logger: logger,
 	}, nil
 }
@@ -99,13 +105,18 @@ func ensureTableExists(ctx context.Context, db *ydb.Driver, tableName string, lo
 
 	logger.Info("YDB: creating table", "table", tableName)
 
+	quotedTableName, err := quoteYDBIdentifier(tableName)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", tableName, err)
+	}
+
 	queryStmt := fmt.Sprintf(`
 		CREATE TABLE %s (
 			key Text NOT NULL,
 			value Bytes,
 			updated_at Timestamp,
 			PRIMARY KEY (key)
-		)`, tableName)
+		)`, quotedTableName)
 
 	err = db.Query().Exec(ctx, queryStmt)
 	if err != nil {
@@ -304,6 +315,60 @@ func (y *YDBBackend) Transaction(ctx context.Context, txns []*physical.TxnEntry)
 // See `sdk/physical/transactions.go`
 func (y *YDBBackend) TransactionLimits() (int, int) {
 	return 63, 128 * 1024
+}
+
+func quoteYDBIdentifier(identifier string) (string, error) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return "", fmt.Errorf("missing identifier")
+	}
+
+	hasLeadingSlash := strings.HasPrefix(identifier, "/")
+	segments := strings.Split(identifier, "/")
+	quotedSegments := make([]string, 0, len(segments))
+
+	for idx, segment := range segments {
+		if segment == "" {
+			if !(hasLeadingSlash && idx == 0) {
+				return "", fmt.Errorf("empty identifier segment")
+			}
+			continue
+		}
+		if err := validateYDBIdentifierSegment(segment); err != nil {
+			return "", err
+		}
+		quotedSegments = append(quotedSegments, "`"+strings.ReplaceAll(segment, "`", "``")+"`")
+	}
+
+	if len(quotedSegments) == 0 {
+		return "", fmt.Errorf("missing identifier")
+	}
+
+	quoted := strings.Join(quotedSegments, "/")
+	if hasLeadingSlash {
+		return "/" + quoted, nil
+	}
+	return quoted, nil
+}
+
+func validateYDBIdentifierSegment(segment string) error {
+	if segment == "" {
+		return fmt.Errorf("empty identifier segment")
+	}
+	if segment == "." || segment == ".." {
+		return fmt.Errorf("reserved identifier segment %q", segment)
+	}
+
+	for _, r := range segment {
+		if r == 0 {
+			return fmt.Errorf("identifier segment %q contains NUL", segment)
+		}
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("identifier segment %q contains non-printable characters", segment)
+		}
+	}
+
+	return nil
 }
 
 func getYDBOptionsFromConfMap(conf map[string]string) []ydb.Option {
