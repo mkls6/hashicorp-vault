@@ -1,0 +1,153 @@
+package ydb
+
+import (
+	"os"
+	"strings"
+
+	env "github.com/ydb-platform/ydb-go-sdk-auth-environ"
+	ydb "github.com/ydb-platform/ydb-go-sdk/v3"
+	yc "github.com/ydb-platform/ydb-go-yc"
+)
+
+func getYDBOptionsFromConfMap(conf map[string]string) []ydb.Option {
+	var opts []ydb.Option
+
+	internalCAVal := ""
+	if envv := os.Getenv("VAULT_YDB_INTERNAL_CA"); envv != "" {
+		internalCAVal = envv
+	} else if v, ok := conf["internal_ca"]; ok {
+		internalCAVal = v
+	}
+
+	if parseYDBBool(internalCAVal) {
+		opts = append(opts, yc.WithInternalCA())
+	}
+	if authOpt := getYDBAuthOptionFromConfMap(conf); authOpt != nil {
+		opts = append(opts, authOpt)
+	}
+
+	return opts
+}
+
+func getYDBAuthOptionFromConfMap(conf map[string]string) ydb.Option {
+	switch auth := resolveYDBAuth(conf); auth.kind {
+	case "token":
+		return ydb.WithAccessTokenCredentials(auth.value)
+	case "service_account_key_file":
+		return yc.WithServiceAccountKeyFileCredentials(auth.value)
+	case "service_account_key":
+		return yc.WithServiceAccountKeyCredentials(auth.value)
+	case "static":
+		return ydb.WithStaticCredentials(auth.value, auth.value2)
+	case "metadata":
+		return yc.WithMetadataCredentials()
+	case "anonymous":
+		return ydb.WithAnonymousCredentials()
+	case "environ":
+		return env.WithEnvironCredentials()
+	default:
+		return nil
+	}
+}
+
+type ydbAuthConfig struct {
+	kind   string
+	value  string
+	value2 string
+}
+
+func resolveYDBAuth(conf map[string]string) ydbAuthConfig {
+	if value := lookupFirstNonEmpty("VAULT_YDB_TOKEN", conf["token"]); value != "" {
+		return ydbAuthConfig{kind: "token", value: value}
+	}
+	if value := lookupFirstNonEmpty("VAULT_YDB_SA_KEYFILE", conf["service_account_key_file"]); value != "" {
+		return ydbAuthConfig{kind: "service_account_key_file", value: value}
+	}
+	if value := lookupFirstNonEmpty("VAULT_YDB_SA_KEY", conf["service_account_key"]); value != "" {
+		return ydbAuthConfig{kind: "service_account_key", value: value}
+	}
+	if user, password := lookupStaticCredentials(conf); user != "" && password != "" {
+		return ydbAuthConfig{kind: "static", value: user, value2: password}
+	}
+	if lookupFirstBool("VAULT_YDB_METADATA_AUTH", conf["metadata_auth"]) {
+		return ydbAuthConfig{kind: "metadata"}
+	}
+	if lookupFirstBool("VAULT_YDB_ANONYMOUS_CREDENTIALS", conf["anonymous_credentials"]) {
+		return ydbAuthConfig{kind: "anonymous"}
+	}
+	if hasYDBEnvironCredentials() {
+		return ydbAuthConfig{kind: "environ"}
+	}
+	return ydbAuthConfig{}
+}
+
+func lookupStaticCredentials(conf map[string]string) (string, string) {
+	user := lookupFirstNonEmpty("VAULT_YDB_STATIC_CREDENTIALS_USER", conf["static_credentials_user"])
+	password := lookupFirstNonEmpty("VAULT_YDB_STATIC_CREDENTIALS_PASSWORD", conf["static_credentials_password"])
+	return user, password
+}
+
+func hasYDBEnvironCredentials() bool {
+	if lookupEnvNonEmpty("YDB_SERVICE_ACCOUNT_KEY_CREDENTIALS") != "" {
+		return true
+	}
+	if lookupEnvNonEmpty("YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS") != "" {
+		return true
+	}
+	if lookupEnvBool("YDB_METADATA_CREDENTIALS") {
+		return true
+	}
+	if lookupEnvNonEmpty("YDB_ACCESS_TOKEN_CREDENTIALS") != "" {
+		return true
+	}
+	if lookupEnvNonEmpty("YDB_STATIC_CREDENTIALS_USER") != "" &&
+		lookupEnvNonEmpty("YDB_STATIC_CREDENTIALS_PASSWORD") != "" &&
+		lookupEnvNonEmpty("YDB_STATIC_CREDENTIALS_ENDPOINT") != "" {
+		return true
+	}
+	if lookupEnvNonEmpty("YDB_OAUTH2_KEY_FILE") != "" {
+		return true
+	}
+	if value, ok := os.LookupEnv("YDB_ANONYMOUS_CREDENTIALS"); ok && strings.TrimSpace(value) == "0" {
+		return true
+	}
+	return false
+}
+
+func lookupFirstNonEmpty(envKey, confValue string) string {
+	if envv := strings.TrimSpace(os.Getenv(envKey)); envv != "" {
+		return envv
+	}
+	return strings.TrimSpace(confValue)
+}
+
+func lookupFirstBool(envKey, confValue string) bool {
+	if envv, ok := os.LookupEnv(envKey); ok {
+		if strings.TrimSpace(envv) == "" {
+			return parseYDBBool(confValue)
+		}
+		return parseYDBBool(envv)
+	}
+	return parseYDBBool(confValue)
+}
+
+func lookupEnvNonEmpty(envKey string) string {
+	return strings.TrimSpace(os.Getenv(envKey))
+}
+
+func lookupEnvBool(envKey string) bool {
+	envv, ok := os.LookupEnv(envKey)
+	if !ok {
+		return false
+	}
+	return parseYDBBool(envv)
+}
+
+func parseYDBBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
