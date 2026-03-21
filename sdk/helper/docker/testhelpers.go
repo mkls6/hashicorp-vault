@@ -273,8 +273,10 @@ func (d *Runner) StartNewService(ctx context.Context, addSuffix, forceLocalAddr 
 	}
 
 	cleanup := func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		for i := 0; i < 10; i++ {
-			err := d.DockerAPI.ContainerRemove(ctx, result.Container.ID, container.RemoveOptions{Force: true})
+			err := d.DockerAPI.ContainerRemove(cleanupCtx, result.Container.ID, container.RemoveOptions{Force: true})
 			if err == nil || client.IsErrNotFound(err) {
 				return
 			}
@@ -489,7 +491,7 @@ func (d *Runner) Start(ctx context.Context, addSuffix, forceLocalAddr bool) (*St
 		})
 	}
 
-	c, err := d.DockerAPI.ContainerCreate(ctx, cfg, hostConfig, netConfig, nil, cfg.Hostname)
+	c, err := d.DockerAPI.ContainerCreate(ctx, cfg, hostConfig, netConfig, nil, name)
 	if err != nil {
 		return nil, fmt.Errorf("container create failed: %v", err)
 	}
