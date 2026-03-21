@@ -151,3 +151,21 @@ func parseYDBBool(value string) bool {
 		return false
 	}
 }
+
+func getYDBHACoordinationNodePath(conf map[string]string, dbName, table string) string {
+	if path := lookupFirstNonEmpty("VAULT_YDB_HA_COORDINATION_NODE", conf["ha_coordination_node"]); path != "" {
+		if strings.HasPrefix(path, "/") {
+			return path
+		}
+		return dbName + "/" + path
+	}
+
+	if strings.HasPrefix(table, "/") {
+		return table + "_ha"
+	}
+	return dbName + "/" + table + "_ha"
+}
+
+func getYDBHAEnabled(conf map[string]string) bool {
+	return lookupFirstBool("VAULT_YDB_HA_ENABLED", conf["ha_enabled"])
+}

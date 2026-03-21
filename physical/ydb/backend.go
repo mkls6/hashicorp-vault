@@ -18,13 +18,16 @@ import (
 const VAULT_TABLE = "vault_kv"
 
 type YDBBackend struct {
-	db     *ydb.Driver
-	table  string
-	logger log.Logger
+	db               *ydb.Driver
+	table            string
+	coordinationNode string
+	haEnabled        bool
+	logger           log.Logger
 }
 
 var (
 	_ physical.Backend             = (*YDBBackend)(nil)
+	_ physical.HABackend           = (*YDBBackend)(nil)
 	_ physical.Transactional       = (*YDBBackend)(nil)
 	_ physical.TransactionalLimits = (*YDBBackend)(nil)
 )
@@ -70,9 +73,11 @@ func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend,
 	}
 
 	return &YDBBackend{
-		db:     db,
-		table:  quotedTable,
-		logger: logger,
+		db:               db,
+		table:            quotedTable,
+		coordinationNode: getYDBHACoordinationNodePath(conf, db.Name(), table),
+		haEnabled:        getYDBHAEnabled(conf),
+		logger:           logger,
 	}, nil
 }
 

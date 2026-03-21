@@ -20,11 +20,20 @@ func TestYDBBackend(t *testing.T) {
 	logger.Info(fmt.Sprintf("YDB VAULT TABLE: %v", cfg.Table))
 
 	backend, err := NewYDBBackend(map[string]string{
-		"dsn":   cfg.DSN,
-		"table": cfg.Table,
+		"dsn":        cfg.DSN,
+		"table":      cfg.Table,
+		"ha_enabled": "true",
 	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create new backend: %v", err)
+	}
+	backend2, err := NewYDBBackend(map[string]string{
+		"dsn":        cfg.DSN,
+		"table":      cfg.Table,
+		"ha_enabled": "true",
+	}, logger)
+	if err != nil {
+		t.Fatalf("Failed to create second backend: %v", err)
 	}
 
 	logger.Info("Running basic backend tests")
@@ -33,6 +42,7 @@ func TestYDBBackend(t *testing.T) {
 	logger.Info("Running list prefix backend tests")
 	physical.ExerciseBackend_ListPrefix(t, backend)
 	physical.ExerciseTransactionalBackend(t, backend)
+	physical.ExerciseHABackend(t, backend.(physical.HABackend), backend2.(physical.HABackend))
 }
 
 func TestQuoteYDBIdentifier(t *testing.T) {
