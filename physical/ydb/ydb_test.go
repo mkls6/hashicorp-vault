@@ -87,3 +87,124 @@ func TestQuoteYDBIdentifier(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveYDBAuth(t *testing.T) {
+	clearYDBAuthEnv := func(t *testing.T) {
+		t.Helper()
+		for _, key := range []string{
+			"VAULT_YDB_TOKEN",
+			"VAULT_YDB_SA_KEYFILE",
+			"VAULT_YDB_SA_KEY",
+			"VAULT_YDB_STATIC_CREDENTIALS_USER",
+			"VAULT_YDB_STATIC_CREDENTIALS_PASSWORD",
+			"VAULT_YDB_METADATA_AUTH",
+			"VAULT_YDB_ANONYMOUS_CREDENTIALS",
+			"YDB_SERVICE_ACCOUNT_KEY_CREDENTIALS",
+			"YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS",
+			"YDB_METADATA_CREDENTIALS",
+			"YDB_ACCESS_TOKEN_CREDENTIALS",
+			"YDB_STATIC_CREDENTIALS_USER",
+			"YDB_STATIC_CREDENTIALS_PASSWORD",
+			"YDB_STATIC_CREDENTIALS_ENDPOINT",
+			"YDB_OAUTH2_KEY_FILE",
+			"YDB_ANONYMOUS_CREDENTIALS",
+		} {
+			t.Setenv(key, "")
+		}
+	}
+
+	tests := []struct {
+		name      string
+		conf      map[string]string
+		env       map[string]string
+		wantKind  string
+		wantValue string
+	}{
+		{
+			name: "config service account file used without env fallback",
+			conf: map[string]string{
+				"service_account_key_file": "/path/to/sa.json",
+			},
+			wantKind:  "service_account_key_file",
+			wantValue: "/path/to/sa.json",
+		},
+		{
+			name: "vault env token overrides config",
+			conf: map[string]string{
+				"service_account_key_file": "/path/to/sa.json",
+			},
+			env: map[string]string{
+				"VAULT_YDB_TOKEN": "vault-token",
+			},
+			wantKind:  "token",
+			wantValue: "vault-token",
+		},
+		{
+			name: "empty generic ydb env does not override config",
+			conf: map[string]string{
+				"service_account_key_file": "/path/to/sa.json",
+			},
+			env: map[string]string{
+				"YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS": "",
+			},
+			wantKind:  "service_account_key_file",
+			wantValue: "/path/to/sa.json",
+		},
+		{
+			name: "config static credentials supported directly",
+			conf: map[string]string{
+				"static_credentials_user":     "user",
+				"static_credentials_password": "password",
+			},
+			wantKind:  "static",
+			wantValue: "user",
+		},
+		{
+			name: "vault env static credentials override config",
+			conf: map[string]string{
+				"static_credentials_user":     "user",
+				"static_credentials_password": "password",
+			},
+			env: map[string]string{
+				"VAULT_YDB_STATIC_CREDENTIALS_USER":     "env-user",
+				"VAULT_YDB_STATIC_CREDENTIALS_PASSWORD": "env-password",
+			},
+			wantKind:  "static",
+			wantValue: "env-user",
+		},
+		{
+			name: "generic ydb env used as fallback",
+			env: map[string]string{
+				"YDB_ACCESS_TOKEN_CREDENTIALS": "sdk-token",
+			},
+			wantKind: "environ",
+		},
+		{
+			name: "metadata config supported directly",
+			conf: map[string]string{
+				"metadata_auth": "true",
+			},
+			wantKind: "metadata",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearYDBAuthEnv(t)
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+
+			got := resolveYDBAuth(tc.conf)
+			if got.kind != tc.wantKind {
+				t.Fatalf("resolveYDBAuth kind = %q, want %q", got.kind, tc.wantKind)
+			}
+			if got.value != tc.wantValue {
+				t.Fatalf("resolveYDBAuth value = %q, want %q", got.value, tc.wantValue)
+			}
+			if tc.wantKind == "static" && got.value2 == "" {
+				t.Fatalf("resolveYDBAuth static password is empty")
+			}
+		})
+	}
+}
