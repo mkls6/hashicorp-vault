@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	ydbconsts "github.com/hashicorp/vault/physical/ydb/consts"
 	"github.com/hashicorp/vault/sdk/helper/docker"
 	ydb "github.com/ydb-platform/ydb-go-sdk/v3"
 )
@@ -41,16 +42,16 @@ func (c *Config) URL() *url.URL {
 func PrepareTestContainer(t *testing.T) (func(), *Config) {
 	t.Helper()
 
-	tableName := os.Getenv("VAULT_YDB_TABLE")
+	tableName := os.Getenv(ydbconsts.EnvTable)
 	if tableName == "" {
 		tableName = fmt.Sprintf("vault_kv_test_%d", time.Now().UnixNano())
 	}
 
-	if dsn := os.Getenv("VAULT_YDB_DSN"); dsn != "" {
+	if dsn := os.Getenv(ydbconsts.EnvDSN); dsn != "" {
 		cfg := &Config{
 			DSN:       dsn,
 			Table:     tableName,
-			SAKeyFile: os.Getenv("VAULT_YDB_SA_KEYFILE"),
+			SAKeyFile: os.Getenv(ydbconsts.EnvSAKeyFile),
 		}
 
 		// Ensure the table exists on the remote DSN and return a cleanup that
@@ -101,7 +102,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 
 	repo := os.Getenv("YDB_DOCKER_REPO")
 	if repo == "" {
-		t.Skip("no VAULT_YDB_DSN and no YDB_DOCKER_REPO provided; skipping ydb integration test")
+		t.Skip("no " + ydbconsts.EnvDSN + " and no YDB_DOCKER_REPO provided; skipping ydb integration test")
 	}
 
 	tag := os.Getenv("YDB_DOCKER_TAG")
@@ -109,7 +110,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		tag = "latest"
 	}
 
-	if envTable := os.Getenv("VAULT_YDB_TABLE"); envTable != "" {
+	if envTable := os.Getenv(ydbconsts.EnvTable); envTable != "" {
 		tableName = envTable
 	} else if tableName == "" {
 		tableName = fmt.Sprintf("vault_kv_test_%d", time.Now().UnixNano())
@@ -168,10 +169,10 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		t.Logf("ydb helper: StartService callback: host=%s port=%d", host, port)
 		dsn := fmt.Sprintf("grpc://%s:%d/local", host, port)
 		t.Logf("ydb helper: testing DSN %s", dsn)
-		
+
 		ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
-		
+
 		db, err := ydb.Open(ctx2, dsn)
 		if err != nil {
 			t.Logf("ydb helper: connectivity check failed for %s: %v", dsn, err)
@@ -183,7 +184,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 			DSN:   dsn,
 			Table: tableName,
 		}
-		
+
 		cfg.shp = docker.NewServiceHostPort("127.0.0.1", port)
 		return cfg, nil
 	})
@@ -203,7 +204,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		ctxc, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		db, err := ydb.Open(ctxc, cfg.DSN)
 		cancel()
-		
+
 		if err != nil {
 			svc.Cleanup()
 			t.Fatalf("ydb: open after start failed: %v", err)
@@ -214,21 +215,21 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 
 		createStmt := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (key Utf8, value Bytes, PRIMARY KEY (key))", cfg.Table)
 		t.Logf("ydb helper: ensuring table exists: %s", cfg.Table)
-		
+
 		var lastErr error
 		deadline := time.Now().Add(30 * time.Second)
-		
+
 		for time.Now().Before(deadline) {
 			attemptCtx, attemptCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			lastErr = db.Query().Exec(attemptCtx, createStmt)
-			
+
 			attemptCancel()
-			
+
 			if lastErr == nil {
 				t.Logf("ydb helper: table %s is ready", cfg.Table)
 				break
 			}
-			
+
 			t.Logf("ydb helper: waiting for table creation, last error: %v", lastErr)
 			time.Sleep(500 * time.Millisecond)
 		}
@@ -241,15 +242,15 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 	// Return cleanup that first tries to drop the table, then stops the service.
 	cleanup := func() {
 		t.Logf("ydb helper: cleanup started for table %s, DSN=%s", cfg.Table, cfg.DSN)
-		
+
 		ctxd, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		
+
 		db2, err := ydb.Open(ctxd, cfg.DSN)
 		if err == nil {
 			defer db2.Close(context.Background())
 			dropStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", cfg.Table)
-			
+
 			if derr := db2.Query().Exec(ctxd, dropStmt); derr != nil {
 				t.Logf("ydb: failed to drop table %s during cleanup: %v", cfg.Table, derr)
 			} else {
@@ -258,11 +259,11 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		} else {
 			t.Logf("ydb: failed to open DB for cleanup: %v", err)
 		}
-		
+
 		t.Logf("ydb helper: stopping container service now")
 		svc.Cleanup()
 		t.Logf("ydb helper: container stopped and cleanup finished")
-		
+
 		_ = os.RemoveAll(certDir)
 		_ = os.RemoveAll(dataDir)
 	}

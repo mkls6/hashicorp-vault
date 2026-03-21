@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	ydbconsts "github.com/hashicorp/vault/physical/ydb/consts"
 	env "github.com/ydb-platform/ydb-go-sdk-auth-environ"
 	ydb "github.com/ydb-platform/ydb-go-sdk/v3"
 	yc "github.com/ydb-platform/ydb-go-yc"
@@ -20,7 +21,7 @@ func getYDBOptionsFromConfMap(conf map[string]string) []ydb.Option {
 	var opts []ydb.Option
 
 	internalCAVal := ""
-	if envv := os.Getenv("VAULT_YDB_INTERNAL_CA"); envv != "" {
+	if envv := os.Getenv(ydbconsts.EnvInternalCA); envv != "" {
 		internalCAVal = envv
 	} else if v, ok := conf["internal_ca"]; ok {
 		internalCAVal = v
@@ -64,22 +65,22 @@ type ydbAuthConfig struct {
 }
 
 func resolveYDBAuth(conf map[string]string) ydbAuthConfig {
-	if value := lookupFirstNonEmpty("VAULT_YDB_TOKEN", conf["token"]); value != "" {
+	if value := lookupFirstNonEmpty(ydbconsts.EnvToken, conf["token"]); value != "" {
 		return ydbAuthConfig{kind: "token", value: value}
 	}
-	if value := lookupFirstNonEmpty("VAULT_YDB_SA_KEYFILE", conf["service_account_key_file"]); value != "" {
+	if value := lookupFirstNonEmpty(ydbconsts.EnvSAKeyFile, conf["service_account_key_file"]); value != "" {
 		return ydbAuthConfig{kind: "service_account_key_file", value: value}
 	}
-	if value := lookupFirstNonEmpty("VAULT_YDB_SA_KEY", conf["service_account_key"]); value != "" {
+	if value := lookupFirstNonEmpty(ydbconsts.EnvSAKey, conf["service_account_key"]); value != "" {
 		return ydbAuthConfig{kind: "service_account_key", value: value}
 	}
 	if user, password := lookupStaticCredentials(conf); user != "" && password != "" {
 		return ydbAuthConfig{kind: "static", value: user, value2: password}
 	}
-	if lookupFirstBool("VAULT_YDB_METADATA_AUTH", conf["metadata_auth"]) {
+	if lookupFirstBool(ydbconsts.EnvMetadataAuth, conf["metadata_auth"]) {
 		return ydbAuthConfig{kind: "metadata"}
 	}
-	if lookupFirstBool("VAULT_YDB_ANONYMOUS_CREDENTIALS", conf["anonymous_credentials"]) {
+	if lookupFirstBool(ydbconsts.EnvAnonymousCredentials, conf["anonymous_credentials"]) {
 		return ydbAuthConfig{kind: "anonymous"}
 	}
 	if hasYDBEnvironCredentials() {
@@ -89,8 +90,8 @@ func resolveYDBAuth(conf map[string]string) ydbAuthConfig {
 }
 
 func lookupStaticCredentials(conf map[string]string) (string, string) {
-	user := lookupFirstNonEmpty("VAULT_YDB_STATIC_CREDENTIALS_USER", conf["static_credentials_user"])
-	password := lookupFirstNonEmpty("VAULT_YDB_STATIC_CREDENTIALS_PASSWORD", conf["static_credentials_password"])
+	user := lookupFirstNonEmpty(ydbconsts.EnvStaticCredentialsUser, conf["static_credentials_user"])
+	password := lookupFirstNonEmpty(ydbconsts.EnvStaticCredentialsPassword, conf["static_credentials_password"])
 	return user, password
 }
 
@@ -160,7 +161,7 @@ func parseYDBBool(value string) bool {
 }
 
 func getYDBHACoordinationNodePath(conf map[string]string, dbName, table string) string {
-	if path := lookupFirstNonEmpty("VAULT_YDB_HA_COORDINATION_NODE", conf["ha_coordination_node"]); path != "" {
+	if path := lookupFirstNonEmpty(ydbconsts.EnvHACoordinationNode, conf["ha_coordination_node"]); path != "" {
 		if strings.HasPrefix(path, "/") {
 			return path
 		}
@@ -174,12 +175,12 @@ func getYDBHACoordinationNodePath(conf map[string]string, dbName, table string) 
 }
 
 func getYDBHAEnabled(conf map[string]string) bool {
-	return lookupFirstBool("VAULT_YDB_HA_ENABLED", conf["ha_enabled"])
+	return lookupFirstBool(ydbconsts.EnvHAEnabled, conf["ha_enabled"])
 }
 
 func getYDBTransactionLimits(conf map[string]string) (int, int, error) {
 	maxEntries, err := lookupPositiveInt(
-		"VAULT_YDB_TRANSACTION_MAX_ENTRIES",
+		ydbconsts.EnvTransactionMaxEntries,
 		conf["transaction_max_entries"],
 		defaultYDBTransactionMaxEntries,
 	)
@@ -188,7 +189,7 @@ func getYDBTransactionLimits(conf map[string]string) (int, int, error) {
 	}
 
 	maxSize, err := lookupPositiveInt(
-		"VAULT_YDB_TRANSACTION_MAX_SIZE",
+		ydbconsts.EnvTransactionMaxSize,
 		conf["transaction_max_size"],
 		defaultYDBTransactionMaxSize,
 	)

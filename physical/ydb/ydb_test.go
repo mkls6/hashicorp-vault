@@ -6,6 +6,7 @@ import (
 
 	log "github.com/hashicorp/go-hclog"
 	helper "github.com/hashicorp/vault/helper/testhelpers/ydb"
+	ydbconsts "github.com/hashicorp/vault/physical/ydb/consts"
 	"github.com/hashicorp/vault/sdk/helper/logging"
 	"github.com/hashicorp/vault/sdk/physical"
 )
@@ -106,13 +107,13 @@ func TestResolveYDBAuth(t *testing.T) {
 	clearYDBAuthEnv := func(t *testing.T) {
 		t.Helper()
 		for _, key := range []string{
-			"VAULT_YDB_TOKEN",
-			"VAULT_YDB_SA_KEYFILE",
-			"VAULT_YDB_SA_KEY",
-			"VAULT_YDB_STATIC_CREDENTIALS_USER",
-			"VAULT_YDB_STATIC_CREDENTIALS_PASSWORD",
-			"VAULT_YDB_METADATA_AUTH",
-			"VAULT_YDB_ANONYMOUS_CREDENTIALS",
+			ydbconsts.EnvToken,
+			ydbconsts.EnvSAKeyFile,
+			ydbconsts.EnvSAKey,
+			ydbconsts.EnvStaticCredentialsUser,
+			ydbconsts.EnvStaticCredentialsPassword,
+			ydbconsts.EnvMetadataAuth,
+			ydbconsts.EnvAnonymousCredentials,
 			"YDB_SERVICE_ACCOUNT_KEY_CREDENTIALS",
 			"YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS",
 			"YDB_METADATA_CREDENTIALS",
@@ -148,7 +149,7 @@ func TestResolveYDBAuth(t *testing.T) {
 				"service_account_key_file": "/path/to/sa.json",
 			},
 			env: map[string]string{
-				"VAULT_YDB_TOKEN": "vault-token",
+				ydbconsts.EnvToken: "vault-token",
 			},
 			wantKind:  "token",
 			wantValue: "vault-token",
@@ -180,8 +181,8 @@ func TestResolveYDBAuth(t *testing.T) {
 				"static_credentials_password": "password",
 			},
 			env: map[string]string{
-				"VAULT_YDB_STATIC_CREDENTIALS_USER":     "env-user",
-				"VAULT_YDB_STATIC_CREDENTIALS_PASSWORD": "env-password",
+				ydbconsts.EnvStaticCredentialsUser:     "env-user",
+				ydbconsts.EnvStaticCredentialsPassword: "env-password",
 			},
 			wantKind:  "static",
 			wantValue: "env-user",
@@ -253,8 +254,8 @@ func TestGetYDBTransactionLimits(t *testing.T) {
 				"transaction_max_size":    "262144",
 			},
 			env: map[string]string{
-				"VAULT_YDB_TRANSACTION_MAX_ENTRIES": "50",
-				"VAULT_YDB_TRANSACTION_MAX_SIZE":    "131072",
+				ydbconsts.EnvTransactionMaxEntries: "50",
+				ydbconsts.EnvTransactionMaxSize:    "131072",
 			},
 			wantEntries: 50,
 			wantSize:    131072,
@@ -269,7 +270,7 @@ func TestGetYDBTransactionLimits(t *testing.T) {
 		{
 			name: "invalid size",
 			env: map[string]string{
-				"VAULT_YDB_TRANSACTION_MAX_SIZE": "abc",
+				ydbconsts.EnvTransactionMaxSize: "abc",
 			},
 			expectErr: true,
 		},
@@ -277,8 +278,8 @@ func TestGetYDBTransactionLimits(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("VAULT_YDB_TRANSACTION_MAX_ENTRIES", "")
-			t.Setenv("VAULT_YDB_TRANSACTION_MAX_SIZE", "")
+			t.Setenv(ydbconsts.EnvTransactionMaxEntries, "")
+			t.Setenv(ydbconsts.EnvTransactionMaxSize, "")
 			for key, value := range tc.env {
 				t.Setenv(key, value)
 			}
