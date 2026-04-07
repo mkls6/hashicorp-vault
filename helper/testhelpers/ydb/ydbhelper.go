@@ -10,7 +10,8 @@ import (
 
 	ydbconsts "github.com/hashicorp/vault/physical/ydb/consts"
 	"github.com/hashicorp/vault/sdk/helper/docker"
-	ydb "github.com/ydb-platform/ydb-go-sdk/v3"
+	"github.com/ydb-platform/ydb-go-sdk/v3"
+	"github.com/ydb-platform/ydb-go-sdk/v3/balancers"
 )
 
 type Config struct {
@@ -57,7 +58,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		// Ensure the table exists on the remote DSN and return a cleanup that
 		// drops it after the test finishes.
 		ctxc, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		db, err := ydb.Open(ctxc, cfg.DSN)
+		db, err := ydb.Open(ctxc, cfg.DSN, ydb.WithBalancer(balancers.SingleConn()))
 		cancel()
 		if err != nil {
 			t.Fatalf("ydb: open failed for DSN %s: %v", cfg.DSN, err)
@@ -81,11 +82,10 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 			t.Fatalf("ydb: failed to create table %s: %v", cfg.Table, lastErr)
 		}
 
-		// cleanup will attempt to drop the table; ignore errors but log them.
 		cleanup := func() {
 			ctxd, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			db2, err := ydb.Open(ctxd, cfg.DSN)
+			db2, err := ydb.Open(ctxd, cfg.DSN, ydb.WithBalancer(balancers.SingleConn()))
 			if err == nil {
 				defer db2.Close(context.Background())
 				dropStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", cfg.Table)
@@ -102,7 +102,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 
 	repo := os.Getenv("YDB_DOCKER_REPO")
 	if repo == "" {
-		t.Skip("no " + ydbconsts.EnvDSN + " and no YDB_DOCKER_REPO provided; skipping ydb integration test")
+		repo = "docker.io/ydbplatform/local-ydb"
 	}
 
 	tag := os.Getenv("YDB_DOCKER_TAG")
@@ -118,47 +118,20 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 
 	t.Logf("ydb helper: creating docker runner for image %s:%s", repo, tag)
 
-	certDir, err := os.MkdirTemp("", "ydb_certs_*")
-	if err != nil {
-		t.Fatalf("could not create temp ydb cert dir: %v", err)
-	}
-	dataDir, err := os.MkdirTemp("", "ydb_data_*")
-	if err != nil {
-		_ = os.RemoveAll(certDir)
-		t.Fatalf("could not create temp ydb data dir: %v", err)
-	}
-	t.Logf("ydb helper: created host dirs certs=%s data=%s", certDir, dataDir)
-
 	runner, err := docker.NewServiceRunner(docker.RunOptions{
 		ImageRepo: repo,
 		ImageTag:  tag,
 		Env: []string{
 			"GRPC_PORT=2136",
-			"GRPC_TLS_PORT=2135",
-			"MON_PORT=8765",
-			"YDB_KAFKA_PROXY_PORT=9092",
 		},
-		ContainerName: "ydb-vault-test",
-		Hostname:      "localhost",
-		Ports:         []string{"2136/tcp", "2135/tcp", "8765/tcp", "9092/tcp"},
+		ContainerName: "ydb",
+		Ports:         []string{"2136/tcp"},
 		PortBindings: map[string]string{
 			"2136/tcp": "2136",
-			"2135/tcp": "2135",
-			"8765/tcp": "8765",
-			"9092/tcp": "9092",
 		},
-		// Allow the runner to auto-remove the container on cleanup.
 		DoNotAutoRemove: false,
-		// Bind the temporary host dirs into the container at the locations the
-		// official YDB images expect.
-		BindMounts: []string{
-			fmt.Sprintf("%s:/ydb_certs", certDir),
-			fmt.Sprintf("%s:/ydb_data", dataDir),
-		},
 	})
 	if err != nil {
-		_ = os.RemoveAll(certDir)
-		_ = os.RemoveAll(dataDir)
 		t.Fatalf("Could not create YDB docker runner: %v", err)
 	}
 
@@ -173,7 +146,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 
-		db, err := ydb.Open(ctx2, dsn)
+		db, err := ydb.Open(ctx2, dsn, ydb.WithBalancer(balancers.SingleConn()))
 		if err != nil {
 			t.Logf("ydb helper: connectivity check failed for %s: %v", dsn, err)
 			return nil, err
@@ -202,7 +175,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 	// Ensure the table exists on the newly-started YDB instance.
 	{
 		ctxc, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		db, err := ydb.Open(ctxc, cfg.DSN)
+		db, err := ydb.Open(ctxc, cfg.DSN, ydb.WithBalancer(balancers.SingleConn()))
 		cancel()
 
 		if err != nil {
@@ -246,7 +219,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		ctxd, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		db2, err := ydb.Open(ctxd, cfg.DSN)
+		db2, err := ydb.Open(ctxd, cfg.DSN, ydb.WithBalancer(balancers.SingleConn()))
 		if err == nil {
 			defer db2.Close(context.Background())
 			dropStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", cfg.Table)
@@ -263,9 +236,6 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		t.Logf("ydb helper: stopping container service now")
 		svc.Cleanup()
 		t.Logf("ydb helper: container stopped and cleanup finished")
-
-		_ = os.RemoveAll(certDir)
-		_ = os.RemoveAll(dataDir)
 	}
 
 	return cleanup, cfg

@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	log "github.com/hashicorp/go-hclog"
+	ydbconsts "github.com/hashicorp/vault/physical/ydb/consts"
 	"github.com/hashicorp/vault/sdk/physical"
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/query"
@@ -34,7 +35,7 @@ var (
 
 func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend, error) {
 	var dsn string
-	if envDSN := os.Getenv(EnvDSN); envDSN != "" {
+	if envDSN := os.Getenv(ydbconsts.EnvDSN); envDSN != "" {
 		dsn = strings.TrimSpace(envDSN)
 	} else {
 		dsn = strings.TrimSpace(conf["dsn"])
@@ -44,12 +45,12 @@ func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend,
 	}
 
 	var table string
-	if envTable := os.Getenv(EnvTable); envTable != "" {
+	if envTable := os.Getenv(ydbconsts.EnvTable); envTable != "" {
 		table = strings.TrimSpace(envTable)
 	} else {
 		table = strings.TrimSpace(conf["table"])
 		if table == "" {
-			table = VAULT_TABLE
+			table = ydbconsts.VAULT_TABLE
 		}
 	}
 
@@ -62,8 +63,13 @@ func NewYDBBackend(conf map[string]string, logger log.Logger) (physical.Backend,
 		return &YDBBackend{}, fmt.Errorf("YDB: invalid transaction limits: %w", err)
 	}
 
+	opts, err := getYDBOptionsFromConfMap(conf)
+	if err != nil {
+		return &YDBBackend{}, fmt.Errorf("YDB: invalid options: %w", err)
+	}
+
 	ctx := context.TODO()
-	db, err := ydb.Open(ctx, dsn, getYDBOptionsFromConfMap(conf)...)
+	db, err := ydb.Open(ctx, dsn, opts...)
 	if err != nil {
 		errStr := "YDB: failed to open database connection"
 		logger.Error(errStr, "error", err)
@@ -176,11 +182,14 @@ func (y *YDBBackend) Delete(ctx context.Context, key string) error {
 func (y *YDBBackend) List(ctx context.Context, prefix string) ([]string, error) {
 	errStr := "YDB: failed to list keys by prefix " + prefix
 	likePrefix := prefix + "%"
+	likeQuery := "WHERE key LIKE $prefix ORDER BY key"
+
 	if prefix == "" {
 		likePrefix = "%"
+		likeQuery = ""
 	}
 
-	stmt := fmt.Sprintf("SELECT key FROM %s WHERE key LIKE $prefix ORDER BY key", y.table)
+	stmt := fmt.Sprintf("SELECT key FROM %s "+likeQuery, y.table)
 	q, err := y.db.Query().Query(ctx,
 		stmt,
 		query.WithParameters(

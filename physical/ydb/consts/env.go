@@ -1,4 +1,4 @@
-package ydb
+package ydbconst
 
 const (
 	EnvDSN                       = "VAULT_YDB_DSN"
@@ -15,6 +15,7 @@ const (
 	EnvHAEnabled                 = "VAULT_YDB_HA_ENABLED"
 	EnvTransactionMaxEntries     = "VAULT_YDB_TRANSACTION_MAX_ENTRIES"
 	EnvTransactionMaxSize        = "VAULT_YDB_TRANSACTION_MAX_SIZE"
+	EnvBalancer                  = "VAULT_YDB_BALANCER"
 
 	VAULT_TABLE = "vault_kv"
 )
